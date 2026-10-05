@@ -23,10 +23,22 @@ For meetings (30 min, 1 hour, 2 hours) or sleep (until your wake-up time). Remin
    **Android:** in Chrome, tap ⋮ → **Install app**.
 3. Open it and tap **Enable notifications & sound**.
 
+## Notifications when the app is closed
+Phones put web apps to sleep, so a small server in `push/` sends the reminders as real push notifications. It runs on Cloudflare Workers (free plan). The app tells it when reminders are due, plus your quiet mode and awake hours. While something is overdue, it pushes every 5 minutes, then every 3, then every 2, until the app reports it's done.
+
+Setup (once):
+1. Make a free Cloudflare account and open **Workers & Pages** once so it sets up your workers.dev address.
+2. Create an API token with the **Edit Cloudflare Workers** template.
+3. In this repo: **Settings → Secrets and variables → Actions → New repository secret**, name `CLOUDFLARE_API_TOKEN`, paste the token. If your Cloudflare login has more than one account, also add `CLOUDFLARE_ACCOUNT_ID`.
+4. Run the **Deploy push server** workflow (Actions tab). It deploys the server and commits `push-config.json` so the app knows where it is.
+5. In the Home Screen app, tap **Turn on notifications**.
+
+Server tests: `cd push && npm ci && npx wrangler dev` in one terminal, `npm test` in another.
+
 ## Limits
 This is a web app, so your phone decides how much it can do in the background:
 - On Chrome/Android, reminders are scheduled ahead of time (Notification Triggers) where the browser supports it.
-- On iOS, background timers pause when the app is closed. The app still records when each reminder was due, so the next time you open it, it goes straight to the full alarm and shows how long you ignored it.
+- On iOS, the app itself pauses when closed; the push server above covers that. When you open the app, anything overdue goes straight to the full alarm.
 - Your phone's silent switch or Do Not Disturb can mute the sound.
 
 To get a nag that can't be ignored even when the app is closed, it would need to be a native app (for example, Capacitor with local notifications) or use a push server.

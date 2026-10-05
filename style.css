@@ -211,3 +211,7 @@ header h1 {
 .nag .btn.snooze { margin-top: 0; }
 .nag .btn.quietish { background: rgba(255,255,255,.16); color: #fff; box-shadow: none; font-size: 15px; padding: 12px 8px; }
 .nag p:empty { display: none; }
+
+/* Push notifications */
+.push-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin: 12px 0; color: var(--muted); }
+.push-row b { color: var(--deep); }

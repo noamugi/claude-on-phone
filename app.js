@@ -231,7 +231,8 @@ try {
 } catch {}
 
 async function notify(kind, body) {
-  if (!('Notification' in window) || Notification.permission !== 'granted') return;
+  // With push on, the server does the notifying; don't double up.
+  if (S.pushOn || !('Notification' in window) || Notification.permission !== 'granted') return;
   const opts = {
     body, tag: 'nag-' + kind, renotify: true, requireInteraction: true,
     icon: 'icon.svg', badge: 'icon.svg', vibrate: [300, 100, 300, 100, 300],
@@ -244,6 +245,118 @@ async function notify(kind, body) {
 
 async function requestWakeLock() {
   try { await navigator.wakeLock.request('screen'); } catch {}
+}
+
+// ---------------------------------------------------------------------------
+// Push: a small server sends the reminders while the app is closed. The app
+// tells it when things are due, and about quiet mode and sleep hours.
+// ---------------------------------------------------------------------------
+
+let pushServer = null;
+let vapidKey = null;
+let lastSync = '';
+let syncTimer = 0;
+let syncRetryAt = 0;
+
+const pushSupported = () => 'PushManager' in window && 'serviceWorker' in navigator && 'Notification' in window;
+
+function syncBody() {
+  return {
+    id: S.pushId,
+    due: { water: S.next.water || null, walk: S.next.walk || null },
+    quietUntil: S.quiet ? S.quiet.until : 0,
+    start: S.settings.start,
+    end: S.settings.end,
+    tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
+  };
+}
+
+async function pushPost(path, body) {
+  const r = await fetch(pushServer + path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || 'server said ' + r.status);
+  return j;
+}
+
+async function syncPush() {
+  if (!S.pushOn || !pushServer) return;
+  const body = syncBody();
+  const sig = JSON.stringify(body);
+  try {
+    await pushPost('/sync', body);
+    lastSync = sig;
+  } catch {
+    syncRetryAt = Date.now() + 60 * 1000; // offline? try again in a minute
+  }
+}
+
+// Called every tick: tell the server whenever the schedule changed.
+function maybeSync() {
+  if (!S.pushOn || !pushServer || syncTimer || Date.now() < syncRetryAt) return;
+  if (JSON.stringify(syncBody()) === lastSync) return;
+  // Short wait so a burst of changes goes out as one update.
+  syncTimer = setTimeout(() => { syncTimer = 0; syncPush(); }, 1500);
+}
+
+function keyBytes(b64) {
+  const s = b64.replace(/-/g, '+').replace(/_/g, '/');
+  return Uint8Array.from(atob(s + '='.repeat((4 - (s.length % 4)) % 4)), (c) => c.charCodeAt(0));
+}
+
+async function initPush() {
+  try {
+    const cfg = await fetch('push-config.json', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null));
+    if (cfg && cfg.server) {
+      pushServer = cfg.server.replace(/\/$/, '');
+      vapidKey = (await fetch(pushServer + '/vapid').then((r) => r.json())).publicKey;
+    }
+  } catch { pushServer = null; }
+  // Permission revoked or app reinstalled: show the button again.
+  if (S.pushOn && pushSupported()) {
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      if (!(await reg.pushManager.getSubscription()) || Notification.permission !== 'granted') S.pushOn = false;
+    } catch {}
+  }
+  renderPush();
+}
+
+async function enablePush() {
+  unlockAudio();
+  if (!pushSupported()) {
+    toast('Add me to your Home Screen first (Share → Add to Home Screen), then open me from there.', 6000);
+    return;
+  }
+  if (!pushServer || !vapidKey) { toast('Can\'t reach the notification server right now. Try again in a bit.'); return; }
+  try {
+    if (Notification.permission === 'default') await Notification.requestPermission();
+    if (Notification.permission !== 'granted') {
+      toast('Notifications are blocked. Turn them on in Settings → Notifications → Nag.', 6000);
+      return;
+    }
+    const reg = await navigator.serviceWorker.ready;
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(vapidKey) });
+    if (!S.pushId) S.pushId = crypto.randomUUID();
+    await pushPost('/sync', { ...syncBody(), subscription: sub.toJSON() });
+    lastSync = JSON.stringify(syncBody());
+    S.pushOn = true;
+    save();
+    renderPush();
+    await pushPost('/test', { id: S.pushId });
+    toast('Notifications on 💕 I\'ll find you even when I\'m closed.', 4000);
+  } catch (e) {
+    toast('Couldn\'t turn on notifications: ' + (e && e.message ? e.message : e), 6000);
+  }
+}
+
+function renderPush() {
+  const card = $('pushCard');
+  card.hidden = !pushServer || !!S.pushOn;
+  $('pushStatus').textContent = !pushServer
+    ? 'Only in the Home Screen app.'
+    : S.pushOn ? 'On ✓ I\'ll buzz you even when I\'m closed.' : 'Off';
+  $('pushTest').hidden = !S.pushOn;
 }
 
 // ---------------------------------------------------------------------------
@@ -325,6 +438,7 @@ function tick() {
   }
 
   renderHome(now);
+  maybeSync();
   save();
 }
 
@@ -661,9 +775,6 @@ $('enableBtn').addEventListener('click', async () => {
   unlockAudio();
   alarm(1);
   requestWakeLock();
-  if ('Notification' in window && Notification.permission === 'default') {
-    try { await Notification.requestPermission(); } catch {}
-  }
   $('setupWarn').hidden = true;
   toast('Sound on 💕 Keep me open and I\'ll keep you honest.');
   tick();
@@ -721,3 +832,10 @@ if (S.active) startNag(S.active.kind, S.active.since, false, S.active.walkMin);
 loadSettingsForm();
 tick();
 setInterval(tick, 1000);
+initPush();
+
+$('pushBtn').addEventListener('click', enablePush);
+$('pushTest').addEventListener('click', async () => {
+  try { await pushPost('/test', { id: S.pushId }); toast('Sent. Lock your phone and wait a few seconds. 📲'); }
+  catch (e) { toast('Test failed: ' + (e && e.message ? e.message : e)); }
+});
