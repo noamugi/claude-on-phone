@@ -1,5 +1,5 @@
 // Service worker: offline cache + showing notifications on behalf of the page.
-const CACHE = 'nag-v4';
+const CACHE = 'nag-v5';
 const ASSETS = ['./', './index.html', './app.js', './style.css', './manifest.webmanifest', './icon.svg', './icon-180.png', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', (e) => {

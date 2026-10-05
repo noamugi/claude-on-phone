@@ -355,8 +355,9 @@ function renderHome(now) {
   }
   $('quietBtn').hidden = !!S.quiet;
 
-  const needsPerm = 'Notification' in window && Notification.permission === 'default';
-  $('setupWarn').hidden = !!audio && audio.state === 'running' && !needsPerm;
+  // Browsers need one tap per visit before sound can play. Once you've
+  // tapped, the banner goes away whatever the notification prompt did.
+  $('setupWarn').hidden = !!audio;
 }
 
 // ---------------------------------------------------------------------------
@@ -663,6 +664,7 @@ $('enableBtn').addEventListener('click', async () => {
   if ('Notification' in window && Notification.permission === 'default') {
     try { await Notification.requestPermission(); } catch {}
   }
+  $('setupWarn').hidden = true;
   toast('Sound on 💕 Keep me open and I\'ll keep you honest.');
   tick();
 });
