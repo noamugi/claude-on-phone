@@ -92,19 +92,19 @@ function schedule(kind, from = Date.now()) {
 
 const LINES = {
   water: [
-    ['Your cells are shrivelling.', 'Hydrate. It takes thirty seconds.', 'A glass of water. That is all I ask.'],
-    ['Still nothing? Wow.', 'You are basically a raisin right now.', 'I can keep this up all day. Can you?'],
-    ['THIS IS NOT GOING AWAY.', 'I WILL SCREAM UNTIL YOU DRINK.', 'EVERY SECOND YOU WAIT, I GET LOUDER.'],
+    ['Babe. Your bottle is right there. 💧', 'Hydrated girls glow. Go drink. ✨', 'A few sips, bestie. That is all I ask.'],
+    ['Still nothing? Your skin is crying. 😭', 'You are basically a raisin right now, babe.', 'I can keep this up all day. Can you?'],
+    ['DRINK. YOUR. WATER. 💢', 'I WILL SCREAM UNTIL YOU DRINK.', 'THE BOTTLE. PICK IT UP. NOW.'],
   ],
   walk: [
-    ['Your chair is not your friend.', 'Stand up. Walk. Now.', 'Your legs called. They miss you.'],
-    ['Still sitting? Really?', 'Your spine is filing a complaint.', 'Fossils move more than you.'],
-    ['GET. UP.', 'I AM NOT ASKING ANYMORE.', 'WALK OR LISTEN TO THIS FOREVER.'],
+    ['Hot girl walk time. 🎀', 'Stand up, queen. Go walk.', 'Your legs called. They miss you. 💌'],
+    ['Still sitting? Not cute.', 'Your spine is filing a complaint, babe.', 'Even your houseplant moves more than you. 🪴'],
+    ['GET. UP. 💢', 'I AM NOT ASKING ANYMORE.', 'WALK OR LISTEN TO THIS FOREVER.'],
   ],
 };
 const TITLES = {
-  water: ['Drink water.', 'DRINK. WATER.', 'DRINK. WATER. NOW.'],
-  walk: ['Go walk.', 'GO. WALK.', 'GET UP AND WALK.'],
+  water: ['Sip sip, babe.', 'DRINK. WATER.', 'DRINK. WATER. NOW.'],
+  walk: ['Walkies, babe.', 'GO. WALK.', 'GET UP AND WALK.'],
 };
 const pick = (a) => a[Math.floor(Math.random() * a.length)];
 
@@ -114,7 +114,7 @@ function moodLine() {
   if (ignored > 30) return `You ignored me for ${ignored} minutes today. I remember.`;
   if (S.day.snoozes > 3) return 'Lots of snoozing today. Interesting choice.';
   if (goalMet(S.day)) return 'Daily goal met. Don\'t get comfortable.';
-  return 'I\'m watching you.';
+  return 'I\'m watching you, babe. 💕';
 }
 
 // ---------------------------------------------------------------------------
@@ -289,7 +289,7 @@ function startNag(kind, since = Date.now(), voluntary = false) {
   $('proofWater').hidden = kind !== 'water';
   $('proofWalk').hidden = kind !== 'walk';
   $('stepGoal').textContent = S.settings.steps;
-  $('nagMsg').textContent = voluntary ? 'Good. Now prove it.' : pick(LINES[kind][0]);
+  $('nagMsg').textContent = voluntary ? 'Love that for you. Now prove it. 💅' : pick(LINES[kind][0]);
   if (!voluntary) notify(kind, pick(LINES[kind][0]));
   renderNag(1, Date.now() - since);
   save();
@@ -300,8 +300,8 @@ function renderNag(level, overdue) {
   const { kind, voluntary } = S.active;
   nagEl.classList.toggle('lvl2', !voluntary && level === 2);
   nagEl.classList.toggle('lvl3', !voluntary && level === 3);
-  $('nagKind').textContent = kind === 'water' ? '💧 WATER' : '🚶 WALK';
-  $('nagTitle').textContent = voluntary ? (kind === 'water' ? 'Drink up.' : 'Let\'s go.') : TITLES[kind][level - 1];
+  $('nagKind').textContent = kind === 'water' ? '💧 water' : '🎀 walk';
+  $('nagTitle').textContent = voluntary ? (kind === 'water' ? 'Drink up, babe.' : 'Let\'s go, queen.') : TITLES[kind][level - 1];
   if (!voluntary && renderNag.level !== level) $('nagMsg').textContent = pick(LINES[kind][level - 1]);
   renderNag.level = level;
   const mins = Math.floor(overdue / MIN);
@@ -325,7 +325,7 @@ function completeNag() {
   nagEl.hidden = true;
   chime();
   if (navigator.vibrate) navigator.vibrate(0);
-  toast(kind === 'water' ? `Glass #${S.day.water}. Fine. See you in ${S.settings.water} min.` : `Walk done. I'll be back in ${S.settings.walk} min.`);
+  toast(kind === 'water' ? `Drink #${S.day.water} 💖 Yes queen. See you in ${S.settings.water} min.` : `Walk done 🎀 I'll be back in ${S.settings.walk} min.`);
   save();
   tick();
 }
@@ -350,18 +350,24 @@ $('snoozeBtn').addEventListener('click', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Water proof: photo of the glass, then hold the button while you drink.
+// Water proof: photo of the bottle, hold the button while you drink, then a
+// photo of the bottle afterwards so the level visibly went down.
 // ---------------------------------------------------------------------------
 
 let hasPhoto = false;
+let drank = false;
 let holdStart = 0;
 let holdRaf = 0;
 
 function resetProof() {
   hasPhoto = false;
-  $('photoPreview').hidden = true;
+  drank = false;
+  for (const id of ['photoPreview', 'photoAfterPreview']) $(id).hidden = true;
   $('photoInput').value = '';
-  $('photoLabel').textContent = '📷 Photo of your full glass';
+  $('photoAfterInput').value = '';
+  $('photoLabel').textContent = '📸 Photo of your bottle now';
+  $('photoAfterLabel').textContent = '📸 Photo of your bottle after';
+  $('photoAfterLabel').classList.add('off');
   $('holdBtn').disabled = true;
   $('holdFill').style.width = '0';
   $('holdTxt').textContent = `Hold while you drink (${HOLD_MS / 1000}s)`;
@@ -372,26 +378,45 @@ function proofInProgress() {
   return holdStart > 0 || stepping;
 }
 
-$('photoInput').addEventListener('change', (e) => {
-  const f = e.target.files && e.target.files[0];
-  if (!f) return;
-  hasPhoto = true;
-  const img = $('photoPreview');
+function showPhoto(input, img) {
+  const f = input.files && input.files[0];
+  if (!f) return false;
   img.src = URL.createObjectURL(f);
   img.hidden = false;
-  $('photoLabel').textContent = '📷 Retake';
-  $('holdBtn').disabled = false;
+  return true;
+}
+
+$('photoInput').addEventListener('change', (e) => {
+  if (!showPhoto(e.target, $('photoPreview'))) return;
+  hasPhoto = true;
+  $('photoLabel').textContent = '📸 Retake';
+  if (!drank) $('holdBtn').disabled = false;
+});
+
+$('photoAfterInput').addEventListener('change', (e) => {
+  if (!drank) return;
+  if (showPhoto(e.target, $('photoAfterPreview'))) setTimeout(completeNag, 900);
+});
+// The "after" photo only counts once you've actually done the drinking part.
+$('photoAfterLabel').addEventListener('click', (e) => {
+  if (!drank) { e.preventDefault(); toast('Nice try. Drink first, then the after photo.'); }
 });
 
 function holdDown(e) {
   e.preventDefault();
-  if (!hasPhoto || holdStart) return;
+  if (!hasPhoto || drank || holdStart) return;
   holdStart = performance.now();
   const step = () => {
     const p = Math.min(1, (performance.now() - holdStart) / HOLD_MS);
     $('holdFill').style.width = p * 100 + '%';
-    $('holdTxt').textContent = p < 1 ? `Keep drinking… ${Math.ceil((1 - p) * HOLD_MS / 1000)}s` : 'Done!';
-    if (p >= 1) { holdStart = 0; completeNag(); return; }
+    $('holdTxt').textContent = p < 1 ? `Keep sipping… ${Math.ceil((1 - p) * HOLD_MS / 1000)}s` : 'Done! Now the after photo 💕';
+    if (p >= 1) {
+      holdStart = 0;
+      drank = true;
+      $('holdBtn').disabled = true;
+      $('photoAfterLabel').classList.remove('off');
+      return;
+    }
     holdRaf = requestAnimationFrame(step);
   };
   holdRaf = requestAnimationFrame(step);

@@ -10,7 +10,7 @@ A phone web app that reminds you to drink water and walk, and won't stop until y
 - **Tracks what you skipped**: minutes ignored, snoozes used, and your daily streak (6 glasses + 3 walks).
 
 ## How it checks you did it
-- **Water:** take a photo of your full glass, then hold a button for 15 seconds while you drink. If you let go, you start over.
+- **Water:** take a photo of your bottle, hold a button for 15 seconds while you drink (let go and you start over), then take a photo of the bottle afterwards so the level visibly went down. The after photo is locked until the drinking part is done.
 - **Walk:** the accelerometer counts real steps (300 by default). It only counts steps at a walking pace, so shaking the phone doesn't work. If the phone has no motion sensor, it uses GPS distance instead.
 
 ## Install on your phone

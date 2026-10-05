@@ -3,30 +3,32 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#0e0f13">
+  <meta name="theme-color" content="#ffe4ef">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>Nag</title>
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icon.svg">
   <link rel="apple-touch-icon" href="icon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=Pacifico&display=swap">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <main id="home">
     <header>
-      <h1>Nag</h1>
-      <p class="sub" id="mood">I'm watching you.</p>
+      <h1>Nag <span class="bow">🎀</span></h1>
+      <p class="sub" id="mood">I'm watching you, babe. 💕</p>
     </header>
 
     <section class="cards">
       <article class="card water">
-        <div class="label">Water</div>
+        <div class="label">💧 Water</div>
         <div class="count" id="waterCountdown">--:--</div>
-        <div class="meta"><span id="waterToday">0</span> glasses today</div>
+        <div class="meta"><span id="waterToday">0</span> drinks today</div>
       </article>
       <article class="card walk">
-        <div class="label">Walk</div>
+        <div class="label">👟 Walk</div>
         <div class="count" id="walkCountdown">--:--</div>
         <div class="meta"><span id="stepsToday">0</span> verified steps today</div>
       </article>
@@ -72,9 +74,8 @@
       <div id="proofWater" class="proof" hidden>
         <ol>
           <li>
-            <label class="btn" for="photoInput" id="photoLabel">📷 Photo of your full glass</label>
+            <label class="btn" for="photoInput" id="photoLabel">📸 Photo of your bottle now</label>
             <input type="file" id="photoInput" accept="image/*" capture="environment" hidden>
-            <img id="photoPreview" alt="" hidden>
           </li>
           <li>
             <button class="btn hold" id="holdBtn" disabled>
@@ -82,7 +83,15 @@
               <span class="txt" id="holdTxt">Hold while you drink (15s)</span>
             </button>
           </li>
+          <li>
+            <label class="btn off" for="photoAfterInput" id="photoAfterLabel">📸 Photo of your bottle after</label>
+            <input type="file" id="photoAfterInput" accept="image/*" capture="environment" hidden>
+          </li>
         </ol>
+        <div class="photos">
+          <figure><img id="photoPreview" alt="Bottle before" hidden><figcaption>before</figcaption></figure>
+          <figure><img id="photoAfterPreview" alt="Bottle after" hidden><figcaption>after</figcaption></figure>
+        </div>
       </div>
 
       <!-- Walk proof -->
