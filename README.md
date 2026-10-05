@@ -4,14 +4,18 @@ A phone web app that reminds you to drink water and walk, and won't stop until y
 
 ## How it nags
 - **Takeover screen** when a reminder is due. It can't be closed. It only goes away when you do the thing.
-- **Gets worse over time.** Calm beeps → faster beeps after 2 min → siren, strobing and shaking after 5 min. The messages get meaner too.
+- **Gets worse over time.** Calm beeps, then faster beeps after 2 min, then a siren with strobing and shaking after 5 min. The messages get meaner too.
 - **Limited snoozes**: 5 minutes each, 2 per reminder by default (you can set 0–3). After that the snooze button is gone.
-- **Repeat notifications** while the app is in the background: every 60s, then every 30s, then every 15s.
-- **Tracks what you skipped**: minutes ignored, snoozes used, and your daily streak (6 glasses + 3 walks).
+- **Daily goals with pacing**: a water goal in ml (default 2,000) and a step goal (default 10,000). If you fall behind pace for the time of day, reminders come more often and walks get longer (10–30 min, sized to close the gap). Once a goal is met, that reminder stops for the day.
+- **Tracks what you skipped**: minutes ignored, snoozes used, and your daily streak (both goals met).
+
+## Quiet mode
+For meetings (30 min, 1 hour, 2 hours) or sleep (until your wake-up time). Reminders that come due wait until it ends and then start fresh. You can turn it on from the home screen or straight from an alarm. Outside your awake hours it's always quiet.
 
 ## How it checks you did it
-- **Water:** take a photo of your bottle, hold a button for 15 seconds while you drink (let go and you start over), then take a photo of the bottle afterwards so the level visibly went down. The after photo is locked until the drinking part is done.
-- **Walk:** the accelerometer counts real steps (300 by default). It only counts steps at a walking pace, so shaking the phone doesn't work. If the phone has no motion sensor, it uses GPS distance instead.
+- **Water:** film yourself drinking (at least 5 seconds, because the bottle isn't see-through), then tap how much you drank: ¼, ½, ¾ or a whole bottle. Set your bottle size in Settings.
+- **Walk:** a timed walk with random "still walking?" check-ins. Miss one (15 seconds to tap) and the walk starts over. Then enter today's step count from your phone's health app, with a screenshot. The number has to be higher than last time.
+- You can also log steps from the home screen any time (number + screenshot).
 
 ## Install on your phone
 1. Host the folder over HTTPS. The easiest way is GitHub Pages: go to repo **Settings → Pages**, pick this branch and the `/ (root)` folder, then open the URL it gives you.

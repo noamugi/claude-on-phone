@@ -4,19 +4,28 @@
 // State
 // ---------------------------------------------------------------------------
 
-const KEY = 'nag-state-v1';
+const KEY = 'nag-state-v2';
 const MIN = 60 * 1000;
 const SNOOZE_MS = 5 * MIN;
-const HOLD_MS = 15 * 1000;
-const DAILY_GOAL = { water: 6, walks: 3 };
+const CHECK_WINDOW = 15 * 1000;
+const MIN_VIDEO_S = 5;
+const STEPS_PER_MIN = 100; // a brisk walk
+const KINDS = ['water', 'walk'];
 
 const DEFAULTS = {
-  settings: { water: 45, walk: 60, steps: 300, start: '08:00', end: '22:00', snoozes: 2 },
+  settings: {
+    waterGoal: 2000, bottle: 750, water: 45,
+    stepGoal: 10000, walk: 60,
+    start: '08:00', end: '22:00', snoozes: 2,
+  },
   next: { water: 0, walk: 0 },
   // Snoozes are counted per reminder so you can't snooze forever.
   snoozed: { water: 0, walk: 0 },
-  // {kind, since, voluntary}
+  // {kind, since, voluntary, walkMin}
   active: null,
+  // {until, why: 'meeting' | 'sleep'}
+  quiet: null,
+  wasResting: false,
   day: null,
   streak: { count: 0, lastDay: null },
 };
@@ -41,8 +50,8 @@ const dayBefore = (key) => {
   d.setDate(d.getDate() - 1);
   return todayKey(d);
 };
-const goalMet = (d) => d.water >= DAILY_GOAL.water && d.walks >= DAILY_GOAL.walks;
-const newDay = () => ({ date: todayKey(), water: 0, walks: 0, steps: 0, ignoredMs: 0, snoozes: 0 });
+const goalMet = (d) => d.waterMl >= S.settings.waterGoal && d.steps >= S.settings.stepGoal;
+const newDay = () => ({ date: todayKey(), waterMl: 0, drinks: 0, walks: 0, steps: 0, ignoredMs: 0, snoozes: 0 });
 
 function rollDay() {
   if (S.day && S.day.date === todayKey()) return;
@@ -55,35 +64,81 @@ function rollDay() {
     }
   }
   S.day = newDay();
+  // New day, new goals: anything parked until "tomorrow" gets a fresh schedule.
+  for (const k of KINDS) if (!S.active || S.active.kind !== k) schedule(k);
   save();
 }
 
 // ---------------------------------------------------------------------------
-// Schedule helpers
+// Schedule + pace
 // ---------------------------------------------------------------------------
 
 function minutesOf(hhmm) {
   const [h, m] = hhmm.split(':').map(Number);
   return h * 60 + m;
 }
-function isActiveHours(t = new Date()) {
-  const now = t.getHours() * 60 + t.getMinutes();
+// Awake window in minutes since midnight; `end` may run past midnight.
+function awakeWindow() {
   const a = minutesOf(S.settings.start);
   const b = minutesOf(S.settings.end);
-  return a <= b ? now >= a && now < b : now >= a || now < b;
+  return [a, b > a ? b : b + 1440];
 }
-function nextActiveStart(t = new Date()) {
+function minuteInWindow(t = new Date()) {
+  const [a, b] = awakeWindow();
+  let m = t.getHours() * 60 + t.getMinutes();
+  if (m < a && m + 1440 < b) m += 1440;
+  return m;
+}
+function isAwake(t = new Date()) {
+  const [a, b] = awakeWindow();
+  const m = minuteInWindow(t);
+  return m >= a && m < b;
+}
+function nextAwakeStart(t = new Date()) {
   const d = new Date(t);
   const a = minutesOf(S.settings.start);
   d.setHours(Math.floor(a / 60), a % 60, 0, 0);
   if (d <= t) d.setDate(d.getDate() + 1);
   return d.getTime();
 }
+function dayProgress(t = new Date()) {
+  const [a, b] = awakeWindow();
+  return Math.min(1, Math.max(0, (minuteInWindow(t) - a) / (b - a)));
+}
+function awakeMinutesLeft(t = new Date()) {
+  const [, b] = awakeWindow();
+  return isAwake(t) ? b - minuteInWindow(t) : 0;
+}
+
+function pace(kind) {
+  const goal = kind === 'water' ? S.settings.waterGoal : S.settings.stepGoal;
+  const have = kind === 'water' ? S.day.waterMl : S.day.steps;
+  const behind = goal * dayProgress() - have;
+  return { goal, have, behind, left: goal - have };
+}
+
+// Behind pace? You hear from me more often. Goal met? I leave you alone today.
+function intervalFor(kind) {
+  const p = pace(kind);
+  if (p.left <= 0) return null;
+  const base = S.settings[kind];
+  return p.behind > p.goal * 0.15 ? Math.max(10, Math.round(base * 0.6)) : base;
+}
+
 function schedule(kind, from = Date.now()) {
-  let at = from + S.settings[kind] * MIN;
-  if (!isActiveHours(new Date(at))) at = nextActiveStart(new Date(at)) + 5 * MIN;
+  const iv = intervalFor(kind);
+  if (iv == null) { S.next[kind] = nextAwakeStart(new Date(from)) + 5 * MIN; return; }
+  let at = from + iv * MIN;
+  if (!isAwake(new Date(at))) at = nextAwakeStart(new Date(at)) + 5 * MIN;
   S.next[kind] = at;
-  scheduleSystemNags();
+}
+
+// Long enough to close the step gap across the walks left today.
+function walkMinutes() {
+  const p = pace('walk');
+  if (p.left <= 0) return 10;
+  const walksLeft = Math.max(1, Math.floor(awakeMinutesLeft() / S.settings.walk));
+  return Math.min(30, Math.max(10, Math.ceil(p.left / walksLeft / STEPS_PER_MIN)));
 }
 
 // ---------------------------------------------------------------------------
@@ -92,7 +147,7 @@ function schedule(kind, from = Date.now()) {
 
 const LINES = {
   water: [
-    ['Babe. Your bottle is right there. 💧', 'Hydrated girls glow. Go drink. ✨', 'A few sips, bestie. That is all I ask.'],
+    ['Babe. Your bottle is right there. 💧', 'Hydrated girls glow. Go drink. ✨', 'A few big sips, bestie. That is all I ask.'],
     ['Still nothing? Your skin is crying. 😭', 'You are basically a raisin right now, babe.', 'I can keep this up all day. Can you?'],
     ['DRINK. YOUR. WATER. 💢', 'I WILL SCREAM UNTIL YOU DRINK.', 'THE BOTTLE. PICK IT UP. NOW.'],
   ],
@@ -107,13 +162,24 @@ const TITLES = {
   walk: ['Walkies, babe.', 'GO. WALK.', 'GET UP AND WALK.'],
 };
 const pick = (a) => a[Math.floor(Math.random() * a.length)];
+const num = (n) => Math.round(n).toLocaleString('en-US');
+const clock = (ms) => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+function paceText(kind) {
+  const p = pace(kind);
+  const unit = kind === 'water' ? 'ml' : 'steps';
+  if (p.left <= 0) return 'Goal met 🎉';
+  if (p.behind > 0) return `${num(p.behind)} ${unit} behind 😬`;
+  return 'On pace ✨';
+}
 
 function moodLine() {
   const ignored = Math.round(S.day.ignoredMs / MIN);
-  if (!isActiveHours()) return 'Off duty. Rest up — I\'ll be back.';
+  if (S.quiet) return S.quiet.why === 'sleep' ? 'Sweet dreams. I\'ll be here. 🌙' : 'Shh. I\'m being quiet. For now. 🤫';
+  if (!isAwake()) return 'Off duty. Rest up, I\'ll be back. 🌙';
+  if (goalMet(S.day)) return 'Both goals met. Iconic. 👑';
   if (ignored > 30) return `You ignored me for ${ignored} minutes today. I remember.`;
   if (S.day.snoozes > 3) return 'Lots of snoozing today. Interesting choice.';
-  if (goalMet(S.day)) return 'Daily goal met. Don\'t get comfortable.';
   return 'I\'m watching you, babe. 💕';
 }
 
@@ -142,29 +208,32 @@ function tone(freq, start, dur, vol, type = 'square', sweepTo) {
   o.start(audio.currentTime + start);
   o.stop(audio.currentTime + start + dur + 0.05);
 }
+function buzz(pattern) {
+  try { if (navigator.vibrate) navigator.vibrate(pattern); } catch {}
+}
 function alarm(level) {
   if (level === 1) { tone(880, 0, 0.15, 0.25); tone(880, 0.25, 0.15, 0.25); }
   else if (level === 2) { for (let i = 0; i < 4; i++) tone(i % 2 ? 660 : 990, i * 0.18, 0.14, 0.45); }
   else { tone(600, 0, 0.45, 0.7, 'sawtooth', 1400); tone(1400, 0.45, 0.45, 0.7, 'sawtooth', 600); }
-  if (navigator.vibrate) navigator.vibrate(level === 3 ? [400, 100, 400, 100, 400] : level === 2 ? [250, 100, 250] : [200]);
+  buzz(level === 3 ? [400, 100, 400, 100, 400] : level === 2 ? [250, 100, 250] : [200]);
 }
 function chime() {
   tone(660, 0, 0.15, 0.25, 'sine'); tone(880, 0.12, 0.15, 0.25, 'sine'); tone(1320, 0.24, 0.3, 0.25, 'sine');
 }
 
 // ---------------------------------------------------------------------------
-// Notifications
+// Notifications + keeping the screen on (where the browser allows them)
 // ---------------------------------------------------------------------------
 
 let swReg = null;
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('sw.js').then((r) => { swReg = r; scheduleSystemNags(); }).catch(() => {});
-}
+try {
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').then((r) => { swReg = r; }).catch(() => {});
+} catch {}
 
-async function notify(kind, body, tag = 'nag-' + kind) {
+async function notify(kind, body) {
   if (!('Notification' in window) || Notification.permission !== 'granted') return;
   const opts = {
-    body, tag, renotify: true, requireInteraction: true,
+    body, tag: 'nag-' + kind, renotify: true, requireInteraction: true,
     icon: 'icon.svg', badge: 'icon.svg', vibrate: [300, 100, 300, 100, 300],
   };
   try {
@@ -173,29 +242,12 @@ async function notify(kind, body, tag = 'nag-' + kind) {
   } catch {}
 }
 
-// Where the browser supports scheduled notifications (Chromium's Notification
-// Triggers), pre-schedule a barrage so the nagging continues even when the page
-// is asleep. Elsewhere this is a no-op and the in-page loop does the work.
-async function scheduleSystemNags() {
-  if (!swReg || !('TimestampTrigger' in window) || Notification.permission !== 'granted') return;
-  try {
-    const old = await swReg.getNotifications({ includeTriggered: false });
-    old.forEach((n) => n.close());
-    for (const kind of ['water', 'walk']) {
-      for (let i = 0; i < 12; i++) {
-        const at = S.next[kind] + i * (i < 4 ? 1 : 2) * MIN;
-        await swReg.showNotification(TITLES[kind][Math.min(2, Math.floor(i / 4))], {
-          body: pick(LINES[kind][Math.min(2, Math.floor(i / 4))]),
-          tag: `pre-${kind}-${i}`, requireInteraction: true, icon: 'icon.svg',
-          showTrigger: new window.TimestampTrigger(at),
-        });
-      }
-    }
-  } catch {}
+async function requestWakeLock() {
+  try { await navigator.wakeLock.request('screen'); } catch {}
 }
 
 // ---------------------------------------------------------------------------
-// UI refs
+// UI helpers
 // ---------------------------------------------------------------------------
 
 const $ = (id) => document.getElementById(id);
@@ -205,14 +257,14 @@ let lastNotify = 0;
 let lastTick = Date.now();
 
 function fmt(ms) {
-  if (ms <= 0) return 'NOW';
+  if (ms <= 0) return 'now';
   const s = Math.ceil(ms / 1000);
   const h = Math.floor(s / 3600);
   const m = Math.floor((s % 3600) / 60);
   const sec = s % 60;
   return h ? `${h}h ${String(m).padStart(2, '0')}m` : `${m}:${String(sec).padStart(2, '0')}`;
 }
-function toast(msg, ms = 2800) {
+function toast(msg, ms = 3000) {
   const t = $('toast');
   t.textContent = msg; t.hidden = false;
   clearTimeout(toast.t); toast.t = setTimeout(() => (t.hidden = true), ms);
@@ -234,10 +286,25 @@ function tick() {
   const dt = Math.min(now - lastTick, 10 * MIN); // count time away too, capped per tick
   lastTick = now;
 
-  // Something is due? Start nagging.
-  if (!S.active && isActiveHours()) {
-    const due = ['water', 'walk'].filter((k) => S.next[k] <= now).sort((a, b) => S.next[a] - S.next[b]);
-    if (due.length) startNag(due[0], S.next[due[0]]);
+  if (S.quiet && now >= S.quiet.until) {
+    toast(S.quiet.why === 'sleep' ? 'Good morning, babe ☀️ Let\'s go.' : 'Quiet time is over. I\'m baaack. 💕');
+    S.quiet = null;
+  }
+
+  const resting = !!S.quiet || !isAwake();
+  if (resting) {
+    if (S.active && !S.active.voluntary) closeNag();
+    S.wasResting = true;
+  } else {
+    if (S.wasResting) {
+      // Whatever came due while you were resting starts now, not hours ago.
+      S.wasResting = false;
+      for (const k of KINDS) if (S.next[k] < now) S.next[k] = now;
+    }
+    if (!S.active) {
+      const due = KINDS.filter((k) => S.next[k] <= now).sort((a, b) => S.next[a] - S.next[b]);
+      if (due.length) startNag(due[0], S.next[due[0]]);
+    }
   }
 
   if (S.active && !S.active.voluntary) {
@@ -262,33 +329,49 @@ function tick() {
 }
 
 function renderHome(now) {
-  const off = !isActiveHours();
-  for (const k of ['water', 'walk']) {
-    $(k + 'Countdown').textContent = off ? 'zzz' : fmt(S.next[k] - now);
+  for (const k of KINDS) {
+    const p = pace(k);
+    $(k + 'Have').textContent = num(p.have);
+    $(k + 'GoalTxt').textContent = num(p.goal);
+    $(k + 'Bar').style.width = Math.min(100, (p.have / p.goal) * 100) + '%';
+    $(k + 'Pace').textContent = paceText(k);
+    let next;
+    if (p.left <= 0) next = 'Done for today';
+    else if (S.quiet || !isAwake()) next = 'Paused';
+    else next = 'Next in ' + fmt(S.next[k] - now);
+    $(k + 'Next').textContent = next;
   }
-  $('waterToday').textContent = S.day.water;
-  $('stepsToday').textContent = S.day.steps;
   $('streak').textContent = S.streak.count + (goalMet(S.day) ? 1 : 0);
   $('ignoredToday').textContent = Math.round(S.day.ignoredMs / MIN);
   $('snoozesToday').textContent = S.day.snoozes;
   $('mood').textContent = moodLine();
-  const needsPerm = 'Notification' in window && Notification.permission !== 'granted';
-  $('setupWarn').hidden = !needsPerm && !!audio;
+
+  const qb = $('quietBanner');
+  qb.hidden = !S.quiet;
+  if (S.quiet) {
+    $('quietTxt').textContent = S.quiet.why === 'sleep'
+      ? `😴 Sleeping until ${clock(S.quiet.until)}`
+      : `🤫 Quiet until ${clock(S.quiet.until)}`;
+  }
+  $('quietBtn').hidden = !!S.quiet;
+
+  const needsPerm = 'Notification' in window && Notification.permission === 'default';
+  $('setupWarn').hidden = !!audio && audio.state === 'running' && !needsPerm;
 }
 
 // ---------------------------------------------------------------------------
 // Nag lifecycle
 // ---------------------------------------------------------------------------
 
-function startNag(kind, since = Date.now(), voluntary = false) {
-  S.active = { kind, since, voluntary };
+function startNag(kind, since = Date.now(), voluntary = false, walkMin) {
+  S.active = { kind, since, voluntary, walkMin: walkMin || (kind === 'walk' ? walkMinutes() : 0) };
   lastAlarm = 0; lastNotify = 0;
   resetProof();
   nagEl.hidden = false;
   nagEl.className = 'nag ' + kind;
   $('proofWater').hidden = kind !== 'water';
   $('proofWalk').hidden = kind !== 'walk';
-  $('stepGoal').textContent = S.settings.steps;
+  $('walkGoal').textContent = S.active.walkMin;
   $('nagMsg').textContent = voluntary ? 'Love that for you. Now prove it. 💅' : pick(LINES[kind][0]);
   if (!voluntary) notify(kind, pick(LINES[kind][0]));
   renderNag(1, Date.now() - since);
@@ -300,10 +383,13 @@ function renderNag(level, overdue) {
   const { kind, voluntary } = S.active;
   nagEl.classList.toggle('lvl2', !voluntary && level === 2);
   nagEl.classList.toggle('lvl3', !voluntary && level === 3);
-  $('nagKind').textContent = kind === 'water' ? '💧 water' : '🎀 walk';
+  $('nagKind').textContent = kind === 'water' ? '💧 water' : '👟 walk';
   $('nagTitle').textContent = voluntary ? (kind === 'water' ? 'Drink up, babe.' : 'Let\'s go, queen.') : TITLES[kind][level - 1];
   if (!voluntary && renderNag.level !== level) $('nagMsg').textContent = pick(LINES[kind][level - 1]);
   renderNag.level = level;
+  const p = pace(kind);
+  const unit = kind === 'water' ? 'ml' : 'steps';
+  $('nagStatus').textContent = `${num(p.have)} / ${num(p.goal)} ${unit} today · ${paceText(kind)}`;
   const mins = Math.floor(overdue / MIN);
   $('nagOverdue').textContent = voluntary ? '' : mins >= 1 ? `You have ignored this for ${mins} minute${mins === 1 ? '' : 's'}.` : '';
 
@@ -311,21 +397,28 @@ function renderNag(level, overdue) {
   if (voluntary) { btn.textContent = 'Never mind'; btn.disabled = false; return; }
   const left = S.settings.snoozes - S.snoozed[kind];
   btn.disabled = left <= 0;
-  btn.textContent = left > 0 ? `Snooze 5 min (${left} left — I'm counting)` : 'No snoozes left. Do it.';
+  btn.textContent = left > 0 ? `Snooze 5 min (${left} left, I'm counting)` : 'No snoozes left. Do it.';
 }
 
-function completeNag() {
+function closeNag() {
+  S.active = null;
+  stopWalk();
+  nagEl.hidden = true;
+  buzz(0);
+}
+
+function completeNag(amountMl = 0) {
   const kind = S.active.kind;
-  if (kind === 'water') S.day.water++;
+  if (kind === 'water') { S.day.drinks++; S.day.waterMl += amountMl; }
   else S.day.walks++;
   S.snoozed[kind] = 0;
-  S.active = null;
+  closeNag();
   schedule(kind);
-  stopSteps();
-  nagEl.hidden = true;
   chime();
-  if (navigator.vibrate) navigator.vibrate(0);
-  toast(kind === 'water' ? `Drink #${S.day.water} 💖 Yes queen. See you in ${S.settings.water} min.` : `Walk done 🎀 I'll be back in ${S.settings.walk} min.`);
+  const p = pace(kind);
+  if (p.left <= 0) toast(kind === 'water' ? `${num(p.goal)} ml! Water goal met 🎉💖` : `${num(p.goal)} steps! Step goal met 🎉👟`, 4000);
+  else if (kind === 'water') toast(`+${num(amountMl)} ml 💖 ${num(p.left)} ml to go. See you in ${fmt(S.next.water - Date.now())}.`);
+  else toast(`Walk done 🎀 ${num(p.left)} steps to go.`);
   save();
   tick();
 }
@@ -340,207 +433,224 @@ $('snoozeBtn').addEventListener('click', () => {
     S.next[kind] = Date.now() + SNOOZE_MS;
     toast(S.snoozed[kind] >= S.settings.snoozes ? 'That was your last snooze. Next time there\'s no escape.' : 'Five minutes. I\'m setting a timer.');
   }
-  S.active = null;
-  stopSteps();
-  nagEl.hidden = true;
-  if (navigator.vibrate) navigator.vibrate(0);
-  scheduleSystemNags();
+  closeNag();
   save();
   tick();
 });
 
 // ---------------------------------------------------------------------------
-// Water proof: photo of the bottle, hold the button while you drink, then a
-// photo of the bottle afterwards so the level visibly went down.
+// Quiet mode: meetings and sleep. Reminders that come due wait until it ends.
 // ---------------------------------------------------------------------------
 
-let hasPhoto = false;
-let drank = false;
-let holdStart = 0;
-let holdRaf = 0;
+function startQuiet(what) {
+  const now = Date.now();
+  if (what === 'sleep') S.quiet = { why: 'sleep', until: nextAwakeStart(new Date(now)) };
+  else S.quiet = { why: 'meeting', until: now + Number(what) * MIN };
+  if (S.active) closeNag();
+  $('quietPanel').hidden = true;
+  toast(S.quiet.why === 'sleep' ? `Good night 🌙 See you at ${clock(S.quiet.until)}.` : `Shh 🤫 Quiet until ${clock(S.quiet.until)}. Then I'm back.`);
+  save();
+  tick();
+}
+
+document.querySelectorAll('[data-quiet]').forEach((b) =>
+  b.addEventListener('click', () => startQuiet(b.dataset.quiet)));
+$('quietBtn').addEventListener('click', () => {
+  $('quietPanel').hidden = !$('quietPanel').hidden;
+  $('logPanel').hidden = true;
+});
+$('endQuiet').addEventListener('click', () => {
+  S.quiet = null;
+  toast('Quiet mode off. Missed me? 💕');
+  save();
+  tick();
+});
+
+// ---------------------------------------------------------------------------
+// Water proof: the bottle isn't see-through, so film yourself drinking
+// (at least 5 seconds), then say how much went in.
+// ---------------------------------------------------------------------------
+
+let gotVideo = false;
 
 function resetProof() {
-  hasPhoto = false;
-  drank = false;
-  for (const id of ['photoPreview', 'photoAfterPreview']) $(id).hidden = true;
-  $('photoInput').value = '';
-  $('photoAfterInput').value = '';
-  $('photoLabel').textContent = '📸 Photo of your bottle now';
-  $('photoAfterLabel').textContent = '📸 Photo of your bottle after';
-  $('photoAfterLabel').classList.add('off');
-  $('holdBtn').disabled = true;
-  $('holdFill').style.width = '0';
-  $('holdTxt').textContent = `Hold while you drink (${HOLD_MS / 1000}s)`;
+  gotVideo = false;
+  const v = $('videoPreview');
+  v.hidden = true;
+  v.removeAttribute('src');
+  $('videoInput').value = '';
+  $('videoLabel').textContent = '🎥 Film yourself drinking (5s+)';
+  document.querySelectorAll('#amounts button').forEach((b) => (b.disabled = true));
+  renderAmounts();
   $('startWalk').hidden = false;
-  $('stepBox').hidden = true;
+  $('walkBox').hidden = true;
+  $('walkLog').hidden = true;
+  $('walkSteps').value = '';
+  $('walkShot').value = '';
+  $('walkShotLabel').textContent = '📱 Screenshot of your step count';
 }
 function proofInProgress() {
-  return holdStart > 0 || stepping;
+  return walking;
 }
 
-function showPhoto(input, img) {
-  const f = input.files && input.files[0];
-  if (!f) return false;
-  img.src = URL.createObjectURL(f);
-  img.hidden = false;
-  return true;
+function renderAmounts() {
+  document.querySelectorAll('#amounts button').forEach((b) => {
+    b.querySelector('small').textContent = num(S.settings.bottle * Number(b.dataset.frac)) + ' ml';
+  });
 }
 
-$('photoInput').addEventListener('change', (e) => {
-  if (!showPhoto(e.target, $('photoPreview'))) return;
-  hasPhoto = true;
-  $('photoLabel').textContent = '📸 Retake';
-  if (!drank) $('holdBtn').disabled = false;
-});
+function acceptVideo() {
+  if (gotVideo) return;
+  gotVideo = true;
+  $('videoLabel').textContent = '🎥 Got it. Retake?';
+  document.querySelectorAll('#amounts button').forEach((b) => (b.disabled = false));
+}
 
-$('photoAfterInput').addEventListener('change', (e) => {
-  if (!drank) return;
-  if (showPhoto(e.target, $('photoAfterPreview'))) setTimeout(completeNag, 900);
-});
-// The "after" photo only counts once you've actually done the drinking part.
-$('photoAfterLabel').addEventListener('click', (e) => {
-  if (!drank) { e.preventDefault(); toast('Nice try. Drink first, then the after photo.'); }
-});
-
-function holdDown(e) {
-  e.preventDefault();
-  if (!hasPhoto || drank || holdStart) return;
-  holdStart = performance.now();
-  const step = () => {
-    const p = Math.min(1, (performance.now() - holdStart) / HOLD_MS);
-    $('holdFill').style.width = p * 100 + '%';
-    $('holdTxt').textContent = p < 1 ? `Keep sipping… ${Math.ceil((1 - p) * HOLD_MS / 1000)}s` : 'Done! Now the after photo 💕';
-    if (p >= 1) {
-      holdStart = 0;
-      drank = true;
-      $('holdBtn').disabled = true;
-      $('photoAfterLabel').classList.remove('off');
+$('videoInput').addEventListener('change', (e) => {
+  const f = e.target.files && e.target.files[0];
+  if (!f) return;
+  gotVideo = false;
+  const v = $('videoPreview');
+  v.src = URL.createObjectURL(f);
+  v.hidden = false;
+  // Some phone formats don't report a length; then the video alone has to do.
+  const fallback = setTimeout(acceptVideo, 4000);
+  v.onloadedmetadata = () => {
+    clearTimeout(fallback);
+    const d = v.duration;
+    if (Number.isFinite(d) && d < MIN_VIDEO_S) {
+      toast(`That was ${d.toFixed(1)} seconds. I said drinking, not a cameo. At least ${MIN_VIDEO_S}.`);
+      e.target.value = '';
       return;
     }
-    holdRaf = requestAnimationFrame(step);
+    acceptVideo();
   };
-  holdRaf = requestAnimationFrame(step);
-}
-function holdUp() {
-  if (!holdStart) return;
-  cancelAnimationFrame(holdRaf);
-  holdStart = 0;
-  $('holdFill').style.width = '0';
-  $('holdTxt').textContent = 'You stopped. Start over. ALL of it.';
-  if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
-}
-const hb = $('holdBtn');
-hb.addEventListener('pointerdown', holdDown);
-hb.addEventListener('pointerup', holdUp);
-hb.addEventListener('pointerleave', holdUp);
-hb.addEventListener('pointercancel', holdUp);
-hb.addEventListener('contextmenu', (e) => e.preventDefault());
+  v.onerror = () => { clearTimeout(fallback); acceptVideo(); };
+});
+
+document.querySelectorAll('#amounts button').forEach((b) =>
+  b.addEventListener('click', () => {
+    if (!gotVideo) { toast('Video first, babe. 🎥'); return; }
+    completeNag(Math.round(S.settings.bottle * Number(b.dataset.frac)));
+  }));
 
 // ---------------------------------------------------------------------------
-// Walk proof: count real steps with the accelerometer. Shaking the phone
-// doesn't count — steps must have a human cadence.
+// Walk proof: a timed walk with random "still walking?" check-ins, then your
+// real step count from your phone's health app, with a screenshot.
 // ---------------------------------------------------------------------------
 
-let stepping = false;
-let steps = 0;
-let smooth = 9.81;
-let baseline = 9.81;
-let above = false;
-let lastStepAt = 0;
-let lastMotionAt = 0;
-let geoWatch = null;
-let geoLast = null;
-let geoMeters = 0;
-let fallbackTimer = 0;
+let walking = false;
+let walkStart = 0;
+let nextCheck = 0;
+let checkDeadline = 0;
+let walkTimer = 0;
 
-function onMotion(e) {
-  const a = e.accelerationIncludingGravity;
-  if (!a || a.x == null) return;
-  lastMotionAt = Date.now();
-  const mag = Math.hypot(a.x, a.y, a.z);
-  smooth = smooth * 0.75 + mag * 0.25; // low-pass to drop jitter
-  baseline = baseline * 0.98 + mag * 0.02; // slow-moving gravity estimate
-  const d = smooth - baseline;
-  const now = performance.now();
-  if (!above && d > 1.2) {
-    above = true;
-    const gap = now - lastStepAt;
-    // Human walking: ~0.3s–2s between steps. Violent shaking (huge spikes or
-    // tiny gaps) is ignored.
-    if (gap > 300 && gap < 2000 && d < 9) addSteps(1);
-    else if (gap >= 2000) $('stepHint').textContent = 'Keep moving. Steady pace.';
-    lastStepAt = now;
-  } else if (above && d < 0.3) {
-    above = false;
-  }
-}
+const randCheck = () => Date.now() + (35 + Math.random() * 45) * 1000;
 
-function addSteps(n) {
-  steps += n;
-  S.day.steps += n;
-  $('stepCount').textContent = Math.min(steps, S.settings.steps);
-  if (steps >= S.settings.steps) completeNag();
-}
-
-async function startSteps() {
+function startWalk() {
   unlockAudio();
-  steps = 0; stepping = true;
-  $('stepCount').textContent = '0';
+  requestWakeLock();
+  walking = true;
+  walkStart = Date.now();
+  nextCheck = randCheck();
+  checkDeadline = 0;
   $('startWalk').hidden = true;
-  $('stepBox').hidden = false;
-  $('stepHint').textContent = 'Keep the phone in your hand or pocket. Shaking it won\'t work.';
+  $('walkBox').hidden = false;
+  $('checkBtn').hidden = true;
+  $('walkHint').textContent = 'Walk now. I\'ll check on you at random. Miss a check and you start over.';
+  clearInterval(walkTimer);
+  walkTimer = setInterval(walkTick, 250);
+  walkTick();
+}
 
-  if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
-    try {
-      const r = await DeviceMotionEvent.requestPermission();
-      if (r !== 'granted') toast('No motion access. Falling back to GPS — you\'ll have to actually go somewhere.');
-    } catch {}
+function walkTick() {
+  if (!walking || !S.active) return;
+  const now = Date.now();
+  const left = S.active.walkMin * MIN - (now - walkStart);
+  $('walkLeft').textContent = fmt(Math.max(0, left)).replace('now', '0:00');
+  if (checkDeadline && now > checkDeadline) {
+    walkStart = now;
+    nextCheck = randCheck();
+    checkDeadline = 0;
+    $('checkBtn').hidden = true;
+    $('walkHint').textContent = 'You missed a check. The walk starts over. All of it.';
+    alarm(2);
+    return;
   }
-  window.addEventListener('devicemotion', onMotion);
-
-  // No accelerometer data after a few seconds → use GPS distance instead.
-  fallbackTimer = setTimeout(() => {
-    if (lastMotionAt) return;
-    if (!('geolocation' in navigator)) {
-      $('stepHint').textContent = 'This device can\'t count steps. Grab your phone and open me there.';
-      return;
-    }
-    $('stepHint').textContent = 'No step sensor — tracking distance by GPS instead (≈0.7 m per step). Go outside.';
-    geoWatch = navigator.geolocation.watchPosition((p) => {
-      const cur = p.coords;
-      if (cur.accuracy > 40) return;
-      if (geoLast) {
-        const m = metersBetween(geoLast, cur);
-        if (m > 3 && m < 60) {
-          geoMeters += m;
-          const gained = Math.floor(geoMeters / 0.7) - steps;
-          if (gained > 0) addSteps(gained);
-        }
-      }
-      geoLast = cur;
-    }, () => toast('Location blocked. Then go find a phone with a step sensor.'), { enableHighAccuracy: true });
-  }, 4000);
+  if (!checkDeadline && now >= nextCheck && left > 0) {
+    checkDeadline = now + CHECK_WINDOW;
+    $('checkBtn').hidden = false;
+    alarm(1);
+  }
+  if (checkDeadline) $('checkBtn').textContent = `Still walking, babe? Tap! (${Math.ceil((checkDeadline - now) / 1000)}s)`;
+  if (left <= 0 && !checkDeadline) {
+    stopWalk();
+    $('walkBox').hidden = true;
+    $('walkLog').hidden = false;
+    chime();
+  }
 }
 
-function stopSteps() {
-  stepping = false;
-  window.removeEventListener('devicemotion', onMotion);
-  clearTimeout(fallbackTimer);
-  if (geoWatch != null) navigator.geolocation.clearWatch(geoWatch);
-  geoWatch = null; geoLast = null; geoMeters = 0; lastMotionAt = 0;
+function stopWalk() {
+  walking = false;
+  clearInterval(walkTimer);
+  checkDeadline = 0;
 }
 
-function metersBetween(a, b) {
-  const R = 6371000, r = Math.PI / 180;
-  const dLat = (b.latitude - a.latitude) * r, dLon = (b.longitude - a.longitude) * r;
-  const h = Math.sin(dLat / 2) ** 2 + Math.cos(a.latitude * r) * Math.cos(b.latitude * r) * Math.sin(dLon / 2) ** 2;
-  return 2 * R * Math.asin(Math.sqrt(h));
-}
+$('checkBtn').addEventListener('click', () => {
+  checkDeadline = 0;
+  nextCheck = randCheck();
+  $('checkBtn').hidden = true;
+  $('walkHint').textContent = pick(['Good. Keep going.', 'Fine. Keep moving.', 'I\'ll be back. Keep walking.']);
+});
+$('startWalk').addEventListener('click', startWalk);
 
-$('startWalk').addEventListener('click', startSteps);
+// Shared by the end of a walk and the "Log steps" panel on the home screen.
+function readSteps(inputId, shotId) {
+  const n = Math.round(Number($(inputId).value));
+  const shot = $(shotId).files && $(shotId).files[0];
+  if (!Number.isFinite(n) || n <= 0) { toast('Type in today\'s step count from your health app.'); return null; }
+  if (!shot) { toast('Screenshot or it didn\'t happen. 📱'); return null; }
+  if (n <= S.day.steps) { toast(`That's not more than before (${num(S.day.steps)}). Did you even walk? 🤨`); return null; }
+  if (n > 60000) { toast('60,000+ steps today? Be serious, babe.'); return null; }
+  return n;
+}
+function shotLabel(inputId, labelId) {
+  $(inputId).addEventListener('change', (e) => {
+    if (e.target.files && e.target.files[0]) $(labelId).textContent = '📱 Screenshot added ✓';
+  });
+}
+shotLabel('walkShot', 'walkShotLabel');
+shotLabel('logShot', 'logShotLabel');
+
+$('walkLogBtn').addEventListener('click', () => {
+  const n = readSteps('walkSteps', 'walkShot');
+  if (n == null) return;
+  S.day.steps = n;
+  completeNag();
+});
+
+$('logBtn').addEventListener('click', () => {
+  $('logPanel').hidden = !$('logPanel').hidden;
+  $('quietPanel').hidden = true;
+});
+$('logSave').addEventListener('click', () => {
+  const n = readSteps('logSteps', 'logShot');
+  if (n == null) return;
+  const before = S.day.steps;
+  S.day.steps = n;
+  $('logPanel').hidden = true;
+  $('logSteps').value = '';
+  $('logShot').value = '';
+  $('logShotLabel').textContent = '📱 Screenshot of your step count';
+  toast(`+${num(n - before)} steps 💕 ${paceText('walk')}`);
+  if (!S.active || S.active.kind !== 'walk') schedule('walk');
+  save();
+  tick();
+});
 
 // ---------------------------------------------------------------------------
-// Home controls
+// Home controls + settings
 // ---------------------------------------------------------------------------
 
 $('drinkNow').addEventListener('click', () => { unlockAudio(); startNag('water', Date.now(), true); });
@@ -549,35 +659,41 @@ $('walkNow').addEventListener('click', () => { unlockAudio(); startNag('walk', D
 $('enableBtn').addEventListener('click', async () => {
   unlockAudio();
   alarm(1);
+  requestWakeLock();
   if ('Notification' in window && Notification.permission === 'default') {
-    await Notification.requestPermission();
+    try { await Notification.requestPermission(); } catch {}
   }
-  if ('Notification' in window && Notification.permission === 'denied') {
-    toast('Notifications blocked. Fine. I\'ll just be louder when you open me.');
-  }
-  scheduleSystemNags();
+  toast('Sound on 💕 Keep me open and I\'ll keep you honest.');
   tick();
 });
 
+const FIELDS = [
+  ['setWaterGoal', 'waterGoal', 500, 6000],
+  ['setBottle', 'bottle', 100, 3000],
+  ['setWater', 'water', 10, 240],
+  ['setStepGoal', 'stepGoal', 1000, 40000],
+  ['setWalk', 'walk', 15, 360],
+  ['setSnoozes', 'snoozes', 0, 3],
+];
 function loadSettingsForm() {
-  const s = S.settings;
-  $('setWater').value = s.water; $('setWalk').value = s.walk; $('setSteps').value = s.steps;
-  $('setStart').value = s.start; $('setEnd').value = s.end; $('setSnoozes').value = s.snoozes;
+  for (const [id, k] of FIELDS) $(id).value = S.settings[k];
+  $('setStart').value = S.settings.start;
+  $('setEnd').value = S.settings.end;
 }
 $('saveSettings').addEventListener('click', () => {
-  const clamp = (v, lo, hi, d) => (Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : d);
   const s = S.settings;
-  s.water = clamp(+$('setWater').value, 10, 240, s.water);
-  s.walk = clamp(+$('setWalk').value, 15, 360, s.walk);
-  s.steps = clamp(+$('setSteps').value, 50, 5000, s.steps);
-  s.snoozes = clamp(+$('setSnoozes').value, 0, 3, s.snoozes);
+  for (const [id, k, lo, hi] of FIELDS) {
+    const v = Number($(id).value);
+    if ($(id).value !== '' && Number.isFinite(v)) s[k] = Math.min(hi, Math.max(lo, Math.round(v)));
+  }
   s.start = $('setStart').value || s.start;
   s.end = $('setEnd').value || s.end;
   // Changing settings doesn't get you out of a reminder that's already due.
-  for (const k of ['water', 'walk']) if (S.next[k] > Date.now()) schedule(k);
+  for (const k of KINDS) if (S.next[k] > Date.now()) schedule(k);
   loadSettingsForm();
+  renderAmounts();
   save();
-  toast('Saved. I\'m still watching.');
+  toast('Saved. I\'m still watching. 👀');
 });
 
 // Any tap unlocks audio (browsers block sound until the user interacts).
@@ -588,7 +704,7 @@ window.addEventListener('beforeunload', (e) => {
   if (S.active && !S.active.voluntary) { e.preventDefault(); e.returnValue = ''; }
 });
 document.addEventListener('visibilitychange', () => {
-  if (!document.hidden) { lastAlarm = 0; tick(); }
+  if (!document.hidden) { lastAlarm = 0; requestWakeLock(); tick(); }
 });
 
 // ---------------------------------------------------------------------------
@@ -596,11 +712,10 @@ document.addEventListener('visibilitychange', () => {
 // ---------------------------------------------------------------------------
 
 rollDay();
-if (!S.next.water) schedule('water');
-if (!S.next.walk) schedule('walk');
-// Don't let a reload wipe an active nag — but a voluntary one can go.
+for (const k of KINDS) if (!S.next[k]) schedule(k);
+// Don't let a reload wipe an active nag, but a voluntary one can go.
 if (S.active && S.active.voluntary) S.active = null;
-if (S.active) startNag(S.active.kind, S.active.since);
+if (S.active) startNag(S.active.kind, S.active.since, false, S.active.walkMin);
 loadSettingsForm();
 tick();
 setInterval(tick, 1000);

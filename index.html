@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#ffe4ef">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <title>Nag</title>
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icon.svg">
@@ -21,16 +21,27 @@
       <p class="sub" id="mood">I'm watching you, babe. 💕</p>
     </header>
 
+    <section class="quiet-banner" id="quietBanner" hidden>
+      <span id="quietTxt"></span>
+      <button class="chip" id="endQuiet">End quiet</button>
+    </section>
+
     <section class="cards">
       <article class="card water">
         <div class="label">💧 Water</div>
-        <div class="count" id="waterCountdown">--:--</div>
-        <div class="meta"><span id="waterToday">0</span> drinks today</div>
+        <div class="count" id="waterHave">0</div>
+        <div class="of">of <span id="waterGoalTxt">2,000</span> ml</div>
+        <div class="bar"><i id="waterBar"></i></div>
+        <div class="meta pace" id="waterPace"></div>
+        <div class="meta" id="waterNext"></div>
       </article>
       <article class="card walk">
-        <div class="label">👟 Walk</div>
-        <div class="count" id="walkCountdown">--:--</div>
-        <div class="meta"><span id="stepsToday">0</span> verified steps today</div>
+        <div class="label">👟 Steps</div>
+        <div class="count" id="walkHave">0</div>
+        <div class="of">of <span id="walkGoalTxt">10,000</span> steps</div>
+        <div class="bar"><i id="walkBar"></i></div>
+        <div class="meta pace" id="walkPace"></div>
+        <div class="meta" id="walkNext"></div>
       </article>
     </section>
 
@@ -41,73 +52,108 @@
     </section>
 
     <section class="setup" id="setupWarn" hidden>
-      <p><b>Let me nag you properly.</b> Allow notifications, and on iPhone add me to your Home Screen first (Share → Add to Home Screen).</p>
-      <button class="btn" id="enableBtn">Enable notifications &amp; sound</button>
+      <p><b>Tap to turn on sound.</b> Keep this page open, babe. I can only nag you while it's open.</p>
+      <button class="btn" id="enableBtn">Turn on sound 🔔</button>
     </section>
 
     <section class="actions">
       <button class="btn ghost" id="drinkNow">I want to drink now</button>
       <button class="btn ghost" id="walkNow">I want to walk now</button>
+      <div class="pair">
+        <button class="btn ghost" id="logBtn">📱 Log steps</button>
+        <button class="btn ghost" id="quietBtn">🤫 Quiet mode</button>
+      </div>
+    </section>
+
+    <section class="panel" id="logPanel" hidden>
+      <p>Open your phone's health app and copy today's step count.</p>
+      <label class="field">Steps today <input type="number" id="logSteps" inputmode="numeric" min="0" placeholder="e.g. 4200"></label>
+      <label class="btn ghost" for="logShot" id="logShotLabel">📱 Screenshot of your step count</label>
+      <input type="file" id="logShot" accept="image/*" hidden>
+      <button class="btn" id="logSave">Save steps</button>
+    </section>
+
+    <section class="panel" id="quietPanel" hidden>
+      <p>Reminders that come due wait until quiet mode ends.</p>
+      <div class="chips">
+        <button class="chip" data-quiet="30">Meeting · 30 min</button>
+        <button class="chip" data-quiet="60">Meeting · 1 hour</button>
+        <button class="chip" data-quiet="120">Meeting · 2 hours</button>
+        <button class="chip" data-quiet="sleep">😴 Going to sleep</button>
+      </div>
     </section>
 
     <details class="settings">
       <summary>Settings</summary>
-      <label>Water every <input type="number" id="setWater" min="10" max="240"> min</label>
-      <label>Walk every <input type="number" id="setWalk" min="15" max="360"> min</label>
-      <label>Steps per walk <input type="number" id="setSteps" min="50" max="5000" step="50"></label>
-      <label>Active from <input type="time" id="setStart"> to <input type="time" id="setEnd"></label>
+      <label>Daily water goal <input type="number" id="setWaterGoal" min="500" max="6000" step="250"> ml</label>
+      <label>My bottle holds <input type="number" id="setBottle" min="100" max="3000" step="50"> ml</label>
+      <label>Water reminder every <input type="number" id="setWater" min="10" max="240"> min</label>
+      <label>Daily step goal <input type="number" id="setStepGoal" min="1000" max="40000" step="500"></label>
+      <label>Walk reminder every <input type="number" id="setWalk" min="15" max="360"> min</label>
+      <label>Awake from <input type="time" id="setStart"> to <input type="time" id="setEnd"></label>
       <label>Snoozes allowed per reminder <input type="number" id="setSnoozes" min="0" max="3"></label>
       <button class="btn small" id="saveSettings">Save</button>
-      <p class="fine">Making it easier on yourself? Noted.</p>
+      <p class="fine">Behind pace? Reminders come more often. Goal met? I leave you alone until tomorrow.</p>
     </details>
   </main>
 
   <!-- The takeover. You can't get rid of it without doing the thing. -->
   <div id="nag" class="nag" hidden>
     <div class="nag-inner">
-      <div class="nag-kind" id="nagKind">WATER</div>
+      <div class="nag-kind" id="nagKind">water</div>
       <h2 id="nagTitle">DRINK. WATER. NOW.</h2>
       <p id="nagMsg"></p>
+      <p class="status" id="nagStatus"></p>
       <p class="overdue" id="nagOverdue"></p>
 
       <!-- Water proof -->
       <div id="proofWater" class="proof" hidden>
         <ol>
           <li>
-            <label class="btn" for="photoInput" id="photoLabel">📸 Photo of your bottle now</label>
-            <input type="file" id="photoInput" accept="image/*" capture="environment" hidden>
+            <label class="btn" for="videoInput" id="videoLabel">🎥 Film yourself drinking (5s+)</label>
+            <input type="file" id="videoInput" accept="video/*" capture="user" hidden>
+            <video id="videoPreview" muted playsinline loop autoplay hidden></video>
           </li>
           <li>
-            <button class="btn hold" id="holdBtn" disabled>
-              <span class="fill" id="holdFill"></span>
-              <span class="txt" id="holdTxt">Hold while you drink (15s)</span>
-            </button>
-          </li>
-          <li>
-            <label class="btn off" for="photoAfterInput" id="photoAfterLabel">📸 Photo of your bottle after</label>
-            <input type="file" id="photoAfterInput" accept="image/*" capture="environment" hidden>
+            How much did you drink?
+            <div class="amounts" id="amounts">
+              <button class="btn" data-frac="0.25" disabled>¼ bottle<small></small></button>
+              <button class="btn" data-frac="0.5" disabled>½ bottle<small></small></button>
+              <button class="btn" data-frac="0.75" disabled>¾ bottle<small></small></button>
+              <button class="btn" data-frac="1" disabled>Whole bottle<small></small></button>
+            </div>
           </li>
         </ol>
-        <div class="photos">
-          <figure><img id="photoPreview" alt="Bottle before" hidden><figcaption>before</figcaption></figure>
-          <figure><img id="photoAfterPreview" alt="Bottle after" hidden><figcaption>after</figcaption></figure>
-        </div>
       </div>
 
       <!-- Walk proof -->
       <div id="proofWalk" class="proof" hidden>
-        <button class="btn" id="startWalk">Start counting steps</button>
-        <div class="steps" id="stepBox" hidden>
-          <div class="ring"><b id="stepCount">0</b><span>/ <i id="stepGoal">0</i></span></div>
-          <p class="fine" id="stepHint">Keep the phone in your hand or pocket. Shaking it won't work.</p>
+        <button class="btn" id="startWalk">Start my <span id="walkGoal">10</span> min walk 👟</button>
+        <div class="steps" id="walkBox" hidden>
+          <div class="ring"><b id="walkLeft">0:00</b><span>left to walk</span></div>
+          <button class="btn check" id="checkBtn" hidden>Still walking? Tap!</button>
+          <p class="fine" id="walkHint"></p>
+        </div>
+        <div id="walkLog" class="walk-log" hidden>
+          <p>Walk done! Now prove it: open your health app and enter today's steps.</p>
+          <label class="field">Steps today <input type="number" id="walkSteps" inputmode="numeric" min="0" placeholder="e.g. 6400"></label>
+          <label class="btn" for="walkShot" id="walkShotLabel">📱 Screenshot of your step count</label>
+          <input type="file" id="walkShot" accept="image/*" hidden>
+          <button class="btn" id="walkLogBtn">Log my steps ✓</button>
         </div>
       </div>
 
-      <button class="btn snooze" id="snoozeBtn"></button>
+      <div class="nag-foot">
+        <button class="btn snooze" id="snoozeBtn"></button>
+        <div class="pair">
+          <button class="btn quietish" data-quiet="60">🤫 In a meeting</button>
+          <button class="btn quietish" data-quiet="sleep">😴 Going to sleep</button>
+        </div>
+      </div>
     </div>
   </div>
 
-  <div id="toast" class="toast" hidden></div>
+  <div id="toast" class="toast" role="status" hidden></div>
 
   <script src="app.js"></script>
 </body>

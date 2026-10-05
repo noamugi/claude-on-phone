@@ -56,7 +56,13 @@ header h1 {
 .card .label { font-size: 14px; font-weight: 600; letter-spacing: .5px; }
 .card.water .label { color: var(--pink); }
 .card.walk .label { color: var(--lilac); }
-.card .count { font-size: 34px; font-weight: 700; font-variant-numeric: tabular-nums; margin: 6px 0; }
+.card { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.card .count { font-size: 32px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.1; margin-top: 4px; }
+.card .of { color: var(--muted); font-size: 13px; }
+.bar { height: 10px; border-radius: 99px; background: var(--bg2); overflow: hidden; margin: 6px 0 2px; }
+.bar i { display: block; height: 100%; width: 0; border-radius: inherit; background: linear-gradient(90deg, var(--peach), var(--pink)); transition: width .4s ease; }
+.card.walk .bar i { background: linear-gradient(90deg, #d9b8ff, var(--lilac)); }
+.card .pace { color: var(--deep); font-weight: 600; }
 .card .meta { color: var(--muted); font-size: 13px; }
 
 .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 20px 0 16px; text-align: center; }
@@ -104,6 +110,31 @@ header h1 {
 }
 .fine { color: var(--muted); font-size: 12px; }
 
+/* ---------- Panels: log steps, quiet mode ---------- */
+.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.panel {
+  margin-top: 12px; background: var(--panel); border: 2px solid var(--line); border-radius: 24px;
+  padding: 16px; display: grid; gap: 12px;
+}
+.panel p { margin: 0; color: var(--muted); line-height: 1.4; }
+.field { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-weight: 600; }
+.field input {
+  width: 9ch; min-width: 0; font: inherit; font-size: 18px; text-align: right;
+  background: #fff; color: var(--text); border: 2px solid var(--line); border-radius: 14px; padding: 8px 10px;
+}
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip {
+  font: inherit; font-weight: 600; font-size: 15px; cursor: pointer;
+  border: 2px solid var(--line); background: #fff; color: var(--deep);
+  border-radius: 999px; padding: 10px 14px;
+}
+.chip:focus-visible { outline: 3px solid var(--lilac); outline-offset: 2px; }
+.quiet-banner {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  background: #efe3ff; color: #4b2380; border-radius: 20px; padding: 10px 10px 10px 16px;
+  margin-bottom: 14px; font-weight: 600;
+}
+
 /* ---------- The nag takeover ---------- */
 .nag {
   --a: #e0257a;
@@ -140,10 +171,6 @@ header h1 {
 .nag .btn { background: #fff; color: var(--b); box-shadow: 0 5px 0 rgba(0,0,0,.25); }
 .proof { background: rgba(255,255,255,.18); border: 2px solid rgba(255,255,255,.4); border-radius: 26px; padding: 16px; margin-top: 8px; }
 .proof ol { margin: 0; padding-left: 22px; display: grid; gap: 16px; font-weight: 700; }
-.photos { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 14px; }
-.photos figure { margin: 0; text-align: center; font-size: 13px; }
-.photos figure:has(img[hidden]) { display: none; }
-.photos img { width: 100%; aspect-ratio: 3 / 4; object-fit: cover; border-radius: 18px; border: 3px solid #fff; }
 
 .btn.hold .fill { position: absolute; inset: 0; width: 0; background: #ffc2dc; transition: width .1s linear; }
 .btn.hold .txt { position: relative; }
@@ -170,3 +197,17 @@ header h1 {
 /* Walk check-in button (timer-based walk in the Claude viewer version). */
 .nag .btn.check { background: #fff36b; color: var(--text); margin-top: 12px; animation: shake .4s linear infinite; }
 .nag .fine { color: rgba(255,255,255,.9); font-size: 14px; margin-top: 10px; }
+
+/* ---------- Proof bits ---------- */
+.status { font-weight: 600; background: rgba(255,255,255,.18); border-radius: 14px; padding: 8px 12px; font-size: 16px !important; }
+.proof video { width: 100%; max-height: 220px; object-fit: cover; border-radius: 18px; border: 3px solid #fff; margin-top: 10px; background: #000; }
+.amounts { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+.amounts .btn { padding: 12px 8px; font-size: 16px; }
+.amounts small { display: block; font-size: 12px; font-weight: 500; opacity: .75; }
+.walk-log { display: grid; gap: 12px; }
+.walk-log p { font-size: 16px; }
+.nag .field input { border-color: #fff; }
+.nag-foot { margin-top: auto; display: grid; gap: 10px; padding-top: 8px; }
+.nag .btn.snooze { margin-top: 0; }
+.nag .btn.quietish { background: rgba(255,255,255,.16); color: #fff; box-shadow: none; font-size: 15px; padding: 12px 8px; }
+.nag p:empty { display: none; }
