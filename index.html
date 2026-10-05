@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0e0f13">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>Nag</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg">
+  <link rel="apple-touch-icon" href="icon.svg">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main id="home">
+    <header>
+      <h1>Nag</h1>
+      <p class="sub" id="mood">I'm watching you.</p>
+    </header>
+
+    <section class="cards">
+      <article class="card water">
+        <div class="label">Water</div>
+        <div class="count" id="waterCountdown">--:--</div>
+        <div class="meta"><span id="waterToday">0</span> glasses today</div>
+      </article>
+      <article class="card walk">
+        <div class="label">Walk</div>
+        <div class="count" id="walkCountdown">--:--</div>
+        <div class="meta"><span id="stepsToday">0</span> verified steps today</div>
+      </article>
+    </section>
+
+    <section class="stats">
+      <div><b id="streak">0</b><span>day streak</span></div>
+      <div><b id="ignoredToday">0</b><span>min ignored today</span></div>
+      <div><b id="snoozesToday">0</b><span>snoozes used</span></div>
+    </section>
+
+    <section class="setup" id="setupWarn" hidden>
+      <p><b>Let me nag you properly.</b> Allow notifications, and on iPhone add me to your Home Screen first (Share → Add to Home Screen).</p>
+      <button class="btn" id="enableBtn">Enable notifications &amp; sound</button>
+    </section>
+
+    <section class="actions">
+      <button class="btn ghost" id="drinkNow">I want to drink now</button>
+      <button class="btn ghost" id="walkNow">I want to walk now</button>
+    </section>
+
+    <details class="settings">
+      <summary>Settings</summary>
+      <label>Water every <input type="number" id="setWater" min="10" max="240"> min</label>
+      <label>Walk every <input type="number" id="setWalk" min="15" max="360"> min</label>
+      <label>Steps per walk <input type="number" id="setSteps" min="50" max="5000" step="50"></label>
+      <label>Active from <input type="time" id="setStart"> to <input type="time" id="setEnd"></label>
+      <label>Snoozes allowed per reminder <input type="number" id="setSnoozes" min="0" max="3"></label>
+      <button class="btn small" id="saveSettings">Save</button>
+      <p class="fine">Making it easier on yourself? Noted.</p>
+    </details>
+  </main>
+
+  <!-- The takeover. You can't get rid of it without doing the thing. -->
+  <div id="nag" class="nag" hidden>
+    <div class="nag-inner">
+      <div class="nag-kind" id="nagKind">WATER</div>
+      <h2 id="nagTitle">DRINK. WATER. NOW.</h2>
+      <p id="nagMsg"></p>
+      <p class="overdue" id="nagOverdue"></p>
+
+      <!-- Water proof -->
+      <div id="proofWater" class="proof" hidden>
+        <ol>
+          <li>
+            <label class="btn" for="photoInput" id="photoLabel">📷 Photo of your full glass</label>
+            <input type="file" id="photoInput" accept="image/*" capture="environment" hidden>
+            <img id="photoPreview" alt="" hidden>
+          </li>
+          <li>
+            <button class="btn hold" id="holdBtn" disabled>
+              <span class="fill" id="holdFill"></span>
+              <span class="txt" id="holdTxt">Hold while you drink (15s)</span>
+            </button>
+          </li>
+        </ol>
+      </div>
+
+      <!-- Walk proof -->
+      <div id="proofWalk" class="proof" hidden>
+        <button class="btn" id="startWalk">Start counting steps</button>
+        <div class="steps" id="stepBox" hidden>
+          <div class="ring"><b id="stepCount">0</b><span>/ <i id="stepGoal">0</i></span></div>
+          <p class="fine" id="stepHint">Keep the phone in your hand or pocket. Shaking it won't work.</p>
+        </div>
+      </div>
+
+      <button class="btn snooze" id="snoozeBtn"></button>
+    </div>
+  </div>
+
+  <div id="toast" class="toast" hidden></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
