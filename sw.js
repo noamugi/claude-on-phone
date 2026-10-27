@@ -1,5 +1,5 @@
 // Network-first for the app files so updates land on the next open; cache as offline fallback.
-const CACHE = "cal-v1";
+const CACHE = "cal-v2";
 const FILES = ["./", "index.html", "standalone.js", "vendor/anthropic.mjs", "manifest.webmanifest", "icon.svg", "icon-180.png", "icon-192.png", "icon-512.png"];
 
 self.addEventListener("install", e => {
